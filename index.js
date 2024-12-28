@@ -19,6 +19,23 @@ const questions = [
 
 const users = {};
 
+// Функция для очистки чата
+async function clearChat(chatId, messageId) {
+  try {
+    // Удаляем все сообщения от messageId до 1
+    for (let i = messageId; i > 0; i--) {
+      try {
+        await bot.deleteMessage(chatId, i);
+      } catch (error) {
+        // Игнорируем ошибки удаления несуществующих сообщений
+        continue;
+      }
+    }
+  } catch (error) {
+    console.log("Ошибка при очистке чата:", error);
+  }
+}
+
 // Начало работы бота
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
@@ -80,6 +97,7 @@ bot.on("message", (msg) => {
 // Обработка нажатий на inline-кнопки
 bot.on("callback_query", async (callbackQuery) => {
   const chatId = callbackQuery.message.chat.id;
+  const messageId = callbackQuery.message.message_id;
   const user = users[chatId];
 
   if (!user) return;
@@ -110,7 +128,8 @@ bot.on("callback_query", async (callbackQuery) => {
       await bot.sendMessage(chatId, "Произошла ошибка при отправке заявки. Пожалуйста, попробуйте позже.");
     }
   } else if (callbackQuery.data === "bandlab_no") {
-    await bot.sendMessage(chatId, "К сожалению, мы принимаем только тех, кто умеет пользоваться BandLab.");
+    // Очищаем чат
+    await clearChat(chatId, messageId);
   }
 
   // Очистка данных после обработки ответа
