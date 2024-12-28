@@ -35,7 +35,7 @@ bot.onText(/\/start/, (msg) => {
 bot.on("message", (msg) => {
   const chatId = msg.chat.id;
 
-  if (!users[chatId]) return;
+  if (!users[chatId] || msg.text?.startsWith('/')) return;
 
   const user = users[chatId];
 
@@ -43,20 +43,8 @@ bot.on("message", (msg) => {
   if (user.step >= 0 && user.step < questions.length) {
     const currentQuestionIndex = user.step;
 
-    // Проверка вопроса про BandLab
-    if (currentQuestionIndex === 6) {
-      const bandlabKeyboard = {
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: "Да, умею", callback_data: "bandlab_yes" }],
-            [{ text: "Нет", callback_data: "bandlab_no" }],
-          ],
-        },
-      };
-
-      bot.sendMessage(chatId, "Умеете пользоваться BandLab?", bandlabKeyboard);
-      return;
-    } else if (currentQuestionIndex === 8) {
+    // Обработка юзернейма
+    if (currentQuestionIndex === 7) {
       let username = msg.text;
       if (username.startsWith("https://t.me/")) {
         username = username.replace("https://t.me/", "@");
@@ -66,23 +54,41 @@ bot.on("message", (msg) => {
         username = "@" + username;
       }
       user.answers.push(username);
-    } else {
-      user.answers.push(msg.text);
+
+      // Переход к вопросу про BandLab
+      const bandlabKeyboard = {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: "Да, умею", callback_data: "bandlab_yes" }],
+            [{ text: "Нет", callback_data: "bandlab_no" }],
+          ],
+        },
+      };
+      bot.sendMessage(chatId, "Умеете пользоваться BandLab?", bandlabKeyboard);
+      return;
     }
 
+    user.answers.push(msg.text);
     user.step += 1;
 
     if (user.step < questions.length) {
       bot.sendMessage(chatId, questions[user.step]);
-    } else {
-      // Анкета завершена
-      bot.sendMessage(
-        chatId,
-        "Спасибо! Ваша заявка принята. d1verse скоро её рассмотрит ^_^",
-      );
+    }
+  }
+});
 
-      // Формирование сообщения с заявкой
-      const userMessage = `
+// Обработка нажатий на inline-кнопки
+bot.on("callback_query", async (callbackQuery) => {
+  const chatId = callbackQuery.message.chat.id;
+  const user = users[chatId];
+
+  if (!user) return;
+
+  if (callbackQuery.data === "bandlab_yes") {
+    user.answers.push("Да, умею");
+
+    // Формирование сообщения с заявкой
+    const userMessage = `
 Новая заявка:
 1. Псевдоним: ${user.answers[0]}
 2. Возраст: ${user.answers[1]}
@@ -90,38 +96,26 @@ bot.on("message", (msg) => {
 4. О себе: ${user.answers[3]}
 5. Готов к хейту: ${user.answers[4]}
 6. Сроки: ${user.answers[5]}
-7. BandLab: ${user.answers[6]}
-8. Навыки: ${user.answers[7]}
-9. Юз: ${user.answers[8]}
+7. Навыки: ${user.answers[6]}
+8. Юз: ${user.answers[7]}
+9. BandLab: ${user.answers[8]}
 `;
 
-      bot
-        .sendMessage(CHANNEL_ID, userMessage)
-        .then(() => console.log("Заявка отправлена на рассмотрение диверс"))
-        .catch((error) => console.log("Ошибка отправки заявки:", error));
-
-      delete users[chatId]; // Очистка данных после отправки заявки
+    try {
+      await bot.sendMessage(CHANNEL_ID, userMessage);
+      console.log("Заявка отправлена на рассмотрение диверс");
+      await bot.sendMessage(chatId, "Спасибо! Ваша заявка принята. d1verse скоро её рассмотрит ^_^");
+    } catch (error) {
+      console.log("Ошибка отправки заявки:", error);
+      await bot.sendMessage(chatId, "Произошла ошибка при отправке заявки. Пожалуйста, попробуйте позже.");
     }
-  }
-});
-
-// Обработка нажатий на inline-кнопки
-bot.on("callback_query", (callbackQuery) => {
-  const chatId = callbackQuery.message.chat.id;
-  const user = users[chatId];
-
-  if (!user) return;
-
-  if (user.step === 6) {
-    if (callbackQuery.data === "bandlab_yes") {
-      user.answers.push("Да, умею");
-      user.step += 1;
-      bot.sendMessage(chatId, questions[user.step]);
-    } else if (callbackQuery.data === "bandlab_no") {
-      bot.sendMessage(chatId, "К сожалению, мы принимаем только тех, кто умеет пользоваться BandLab.");
-      delete users[chatId];
-    }
+  } else if (callbackQuery.data === "bandlab_no") {
+    await bot.sendMessage(chatId, "К сожалению, мы принимаем только тех, кто умеет пользоваться BandLab.");
   }
 
-  bot.answerCallbackQuery(callbackQuery.id);
+  // Очистка данных после обработки ответа
+  delete users[chatId];
+  
+  // Отвечаем на callback query
+  await bot.answerCallbackQuery(callbackQuery.id);
 });
