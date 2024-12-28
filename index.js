@@ -13,7 +13,7 @@ const questions = [
   "Расскажите немного о себе, почему мы должны Вас принять?",
   "Готовы ли Вы встретиться с хейтом и сложностями?",
   "Запишете партии в установленный срок?",
-  "Ваши навыки (вокал от 30 сек, рэп от 10 сек)",
+  "Пришлите ваши навыки (вокал от 30 сек, рэп от 10 сек) в формате видео или аудио",
   "Ваш юз:",
 ];
 
@@ -22,12 +22,10 @@ const users = {};
 // Функция для очистки чата
 async function clearChat(chatId, messageId) {
   try {
-    // Удаляем все сообщения от messageId до 1
     for (let i = messageId; i > 0; i--) {
       try {
         await bot.deleteMessage(chatId, i);
       } catch (error) {
-        // Игнорируем ошибки удаления несуществующих сообщений
         continue;
       }
     }
@@ -42,49 +40,66 @@ bot.onText(/\/start/, (msg) => {
   users[chatId] = {
     step: 0,
     answers: [],
+    mediaFileId: null, // Добавляем поле для хранения file_id медиафайла
   };
 
   bot.sendMessage(chatId, "Привет! Давайте начнем с Вашей анкеты.");
   bot.sendMessage(chatId, questions[0]);
 });
 
-// Обработка ответов на вопросы
-bot.on("message", (msg) => {
+// Обработка всех типов сообщений
+bot.on("message", async (msg) => {
   const chatId = msg.chat.id;
 
   if (!users[chatId] || msg.text?.startsWith('/')) return;
 
   const user = users[chatId];
 
-  // Сохранение ответа
-  if (user.step >= 0 && user.step < questions.length) {
-    const currentQuestionIndex = user.step;
-
-    // Обработка юзернейма
-    if (currentQuestionIndex === 7) {
-      let username = msg.text;
-      if (username.startsWith("https://t.me/")) {
-        username = username.replace("https://t.me/", "@");
-      } else if (username.startsWith("http://t.me/")) {
-        username = username.replace("http://t.me/", "@");
-      } else if (!username.startsWith("@")) {
-        username = "@" + username;
-      }
-      user.answers.push(username);
-
-      // Переход к вопросу про BandLab
-      const bandlabKeyboard = {
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: "Да, умею", callback_data: "bandlab_yes" }],
-            [{ text: "Нет", callback_data: "bandlab_no" }],
-          ],
-        },
+  // Проверяем, ожидаем ли мы медиафайл
+  if (user.step === 6) {
+    // Проверяем наличие аудио или видео в сообщении
+    if (msg.audio || msg.voice || msg.video || msg.video_note) {
+      const mediaFile = msg.audio || msg.voice || msg.video || msg.video_note;
+      user.mediaFileId = {
+        type: msg.audio ? 'audio' : (msg.voice ? 'voice' : (msg.video ? 'video' : 'video_note')),
+        file_id: mediaFile.file_id
       };
-      bot.sendMessage(chatId, "Умеете пользоваться BandLab?", bandlabKeyboard);
+      user.answers.push("[Медиафайл]");
+      user.step += 1;
+      bot.sendMessage(chatId, questions[user.step]);
+      return;
+    } else {
+      bot.sendMessage(chatId, "Пожалуйста, отправьте аудио или видео файл с вашими навыками.");
       return;
     }
+  }
 
+  // Обработка юзернейма
+  if (user.step === 7) {
+    let username = msg.text;
+    if (username.startsWith("https://t.me/")) {
+      username = username.replace("https://t.me/", "@");
+    } else if (username.startsWith("http://t.me/")) {
+      username = username.replace("http://t.me/", "@");
+    } else if (!username.startsWith("@")) {
+      username = "@" + username;
+    }
+    user.answers.push(username);
+
+    const bandlabKeyboard = {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: "Да, умею", callback_data: "bandlab_yes" }],
+          [{ text: "Нет", callback_data: "bandlab_no" }],
+        ],
+      },
+    };
+    bot.sendMessage(chatId, "Умеете пользоваться BandLab?", bandlabKeyboard);
+    return;
+  }
+
+  // Обработка текстовых ответов
+  if (user.step >= 0 && user.step < questions.length) {
     user.answers.push(msg.text);
     user.step += 1;
 
@@ -105,8 +120,9 @@ bot.on("callback_query", async (callbackQuery) => {
   if (callbackQuery.data === "bandlab_yes") {
     user.answers.push("Да, умею");
 
-    // Формирование сообщения с заявкой
-    const userMessage = `
+    try {
+      // Сначала отправляем текст анкеты
+      const userMessage = `
 Новая заявка:
 1. Псевдоним: ${user.answers[0]}
 2. Возраст: ${user.answers[1]}
@@ -118,9 +134,26 @@ bot.on("callback_query", async (callbackQuery) => {
 8. Юз: ${user.answers[7]}
 9. BandLab: ${user.answers[8]}
 `;
-
-    try {
       await bot.sendMessage(CHANNEL_ID, userMessage);
+
+      // Затем пересылаем медиафайл
+      if (user.mediaFileId) {
+        switch(user.mediaFileId.type) {
+          case 'audio':
+            await bot.sendAudio(CHANNEL_ID, user.mediaFileId.file_id);
+            break;
+          case 'voice':
+            await bot.sendVoice(CHANNEL_ID, user.mediaFileId.file_id);
+            break;
+          case 'video':
+            await bot.sendVideo(CHANNEL_ID, user.mediaFileId.file_id);
+            break;
+          case 'video_note':
+            await bot.sendVideoNote(CHANNEL_ID, user.mediaFileId.file_id);
+            break;
+        }
+      }
+
       console.log("Заявка отправлена на рассмотрение диверс");
       await bot.sendMessage(chatId, "Спасибо! Ваша заявка принята. d1verse скоро её рассмотрит ^_^");
     } catch (error) {
@@ -128,13 +161,10 @@ bot.on("callback_query", async (callbackQuery) => {
       await bot.sendMessage(chatId, "Произошла ошибка при отправке заявки. Пожалуйста, попробуйте позже.");
     }
   } else if (callbackQuery.data === "bandlab_no") {
-    // Очищаем чат
     await clearChat(chatId, messageId);
+    await bot.sendMessage(chatId, "К сожалению, мы принимаем только тех, кто умеет пользоваться BandLab. Для начала анкеты сначала нажмите /start");
   }
 
-  // Очистка данных после обработки ответа
   delete users[chatId];
-  
-  // Отвечаем на callback query
   await bot.answerCallbackQuery(callbackQuery.id);
 });
