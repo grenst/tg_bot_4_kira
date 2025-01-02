@@ -13,7 +13,7 @@ const questions = [
   "Ваш опыт",
   "Ваше устройство",
   "Ваш часовой пояс",
-  "Как Вы реагируете на хейт?",
+  "Ваш ЮЗ",
   "Готовы ли проявлять активность в канале?",
 ];
 
@@ -113,16 +113,15 @@ bot.on("callback_query", async (callbackQuery) => {
 
     try {
       const userMessage = `
-Новая заявка:
+Новая заявка от ${user.answers[6]}:
 1. Псевдоним: ${user.answers[0]}
 2. Возраст: ${user.answers[1]}
 3. Прототип: ${user.answers[2]}
 4. Опыт: ${user.answers[3]}
 5. Устройство: ${user.answers[4]}
-6. Чп: ${user.answers[5]}
-7. Готовность к хейту: ${user.answers[6]}
-8. Активность в канале: ${user.answers[7]}
-9. Тренировки: ${user.answers[8]}
+6. Часовой пояс: ${user.answers[5]}
+7. Активность в канале: ${user.answers[7]}
+8. Тренировки: ${user.answers[8]}
 `;
       await bot.sendMessage(CHANNEL_ID, userMessage);
 
