@@ -114,7 +114,7 @@ bot.on("callback_query", async (callbackQuery) => {
 
     try {
       const userMessage = `
-Новая заявка @${senderUsername}:
+Новая заявка от @${senderUsername}:
 1. Псевдоним: ${user.answers[0]}
 2. Возраст: ${user.answers[1]}
 3. Прототип: ${user.answers[2]}
