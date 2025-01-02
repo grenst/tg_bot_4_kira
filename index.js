@@ -7,14 +7,14 @@ const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, { polling: true });
 const CHANNEL_ID = process.env.CHAT_ID;
 
 const questions = [
-  "Ваш псевдоним",
-  "Ваш возраст",
+  "Ваш псевдоним (русский и английский вариант)",
+  "Ваш возраст (цифрой)",
   "Желаемый прототип",
-  "Расскажите немного о себе, почему мы должны Вас принять?",
-  "Готовы ли Вы встретиться с хейтом и сложностями?",
-  "Запишете партии в установленный срок?",
-  "Пришлите ваши навыки (вокал от 30 сек, рэп от 10 сек) в формате видео или аудио",
-  "Ваш юз:",
+  "Ваш опыт",
+  "Ваше устройство",
+  "Ваш часовой пояс",
+  "Как Вы реагируете на хейт?",
+  "Готовы ли проявлять активность в канале?",
 ];
 
 const users = {};
@@ -34,13 +34,24 @@ async function clearChat(chatId, messageId) {
   }
 }
 
+// Функция для проверки возраста
+function checkAge(ageString) {
+  // Ищем любые числа в строке
+  const numbers = ageString.match(/\d+/g);
+  if (numbers) {
+    // Проверяем каждое число в строке
+    return numbers.some(num => parseInt(num) < 10);
+  }
+  return false;
+}
+
 // Начало работы бота
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
   users[chatId] = {
     step: 0,
     answers: [],
-    mediaFileId: null, // Добавляем поле для хранения file_id медиафайла
+    mediaFileId: null,
   };
 
   bot.sendMessage(chatId, "Привет! Давайте начнем с Вашей анкеты.");
@@ -50,61 +61,41 @@ bot.onText(/\/start/, (msg) => {
 // Обработка всех типов сообщений
 bot.on("message", async (msg) => {
   const chatId = msg.chat.id;
+  const messageId = msg.message_id;
 
   if (!users[chatId] || msg.text?.startsWith('/')) return;
 
   const user = users[chatId];
 
-  // Проверяем, ожидаем ли мы медиафайл
-  if (user.step === 6) {
-    // Проверяем наличие аудио или видео в сообщении
-    if (msg.audio || msg.voice || msg.video || msg.video_note) {
-      const mediaFile = msg.audio || msg.voice || msg.video || msg.video_note;
-      user.mediaFileId = {
-        type: msg.audio ? 'audio' : (msg.voice ? 'voice' : (msg.video ? 'video' : 'video_note')),
-        file_id: mediaFile.file_id
-      };
-      user.answers.push("[Медиафайл]");
-      user.step += 1;
-      bot.sendMessage(chatId, questions[user.step]);
-      return;
-    } else {
-      bot.sendMessage(chatId, "Пожалуйста, отправьте аудио или видео файл с вашими навыками.");
-      return;
-    }
-  }
-
-  // Обработка юзернейма
-  if (user.step === 7) {
-    let username = msg.text;
-    if (username.startsWith("https://t.me/")) {
-      username = username.replace("https://t.me/", "@");
-    } else if (username.startsWith("http://t.me/")) {
-      username = username.replace("http://t.me/", "@");
-    } else if (!username.startsWith("@")) {
-      username = "@" + username;
-    }
-    user.answers.push(username);
-
-    const bandlabKeyboard = {
-      reply_markup: {
-        inline_keyboard: [
-          [{ text: "Да, умею", callback_data: "bandlab_yes" }],
-          [{ text: "Нет", callback_data: "bandlab_no" }],
-        ],
-      },
-    };
-    bot.sendMessage(chatId, "Умеете пользоваться BandLab?", bandlabKeyboard);
-    return;
-  }
-
   // Обработка текстовых ответов
   if (user.step >= 0 && user.step < questions.length) {
     user.answers.push(msg.text);
+
+    // Проверка возраста после ответа на второй вопрос (индекс 1)
+    if (user.step === 1) {
+      if (checkAge(msg.text)) {
+        await clearChat(chatId, messageId);
+        await bot.sendMessage(chatId, "К сожалению, мы принимаем только участников старше 10 лет. Для начала анкеты сначала нажмите /start");
+        delete users[chatId];
+        return;
+      }
+    }
+
     user.step += 1;
 
     if (user.step < questions.length) {
       bot.sendMessage(chatId, questions[user.step]);
+    } else {
+      // Если все вопросы заданы, спрашиваем про тренировки
+      const trainingKeyboard = {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: "Да, смогу", callback_data: "training_yes" }],
+            [{ text: "Нет", callback_data: "training_no" }],
+          ],
+        },
+      };
+      bot.sendMessage(chatId, "Сможете ходить на тренировки?", trainingKeyboard);
     }
   }
 });
@@ -117,52 +108,33 @@ bot.on("callback_query", async (callbackQuery) => {
 
   if (!user) return;
 
-  if (callbackQuery.data === "bandlab_yes") {
-    user.answers.push("Да, умею");
+  if (callbackQuery.data === "training_yes") {
+    user.answers.push("Да, смогу");
 
     try {
-      // Сначала отправляем текст анкеты
       const userMessage = `
 Новая заявка:
 1. Псевдоним: ${user.answers[0]}
 2. Возраст: ${user.answers[1]}
 3. Прототип: ${user.answers[2]}
-4. О себе: ${user.answers[3]}
-5. Готов к хейту: ${user.answers[4]}
-6. Сроки: ${user.answers[5]}
-7. Навыки: ${user.answers[6]}
-8. Юз: ${user.answers[7]}
-9. BandLab: ${user.answers[8]}
+4. Опыт: ${user.answers[3]}
+5. Устройство: ${user.answers[4]}
+6. Чп: ${user.answers[5]}
+7. Готовность к хейту: ${user.answers[6]}
+8. Активность в канале: ${user.answers[7]}
+9. Тренировки: ${user.answers[8]}
 `;
       await bot.sendMessage(CHANNEL_ID, userMessage);
 
-      // Затем пересылаем медиафайл
-      if (user.mediaFileId) {
-        switch(user.mediaFileId.type) {
-          case 'audio':
-            await bot.sendAudio(CHANNEL_ID, user.mediaFileId.file_id);
-            break;
-          case 'voice':
-            await bot.sendVoice(CHANNEL_ID, user.mediaFileId.file_id);
-            break;
-          case 'video':
-            await bot.sendVideo(CHANNEL_ID, user.mediaFileId.file_id);
-            break;
-          case 'video_note':
-            await bot.sendVideoNote(CHANNEL_ID, user.mediaFileId.file_id);
-            break;
-        }
-      }
-
-      console.log("Заявка отправлена на рассмотрение диверс");
-      await bot.sendMessage(chatId, "Спасибо! Ваша заявка принята. d1verse скоро её рассмотрит ^_^");
+      console.log("Заявка отправлена на рассмотрение");
+      await bot.sendMessage(chatId, "Спасибо! Ваша заявка принята. Скоро её рассмотрят ^_^");
     } catch (error) {
       console.log("Ошибка отправки заявки:", error);
       await bot.sendMessage(chatId, "Произошла ошибка при отправке заявки. Пожалуйста, попробуйте позже.");
     }
-  } else if (callbackQuery.data === "bandlab_no") {
+  } else if (callbackQuery.data === "training_no") {
     await clearChat(chatId, messageId);
-    await bot.sendMessage(chatId, "К сожалению, мы принимаем только тех, кто умеет пользоваться BandLab. Для начала анкеты сначала нажмите /start");
+    await bot.sendMessage(chatId, "К сожалению, мы принимаем только тех, кто может посещать тренировки. Для начала анкеты сначала нажмите /start");
   }
 
   delete users[chatId];
