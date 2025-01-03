@@ -1,4 +1,4 @@
-require("./keepAlive"); // Keep-Alive сервер
+require("./keepAlive");
 
 require("dotenv").config();
 const TelegramBot = require("node-telegram-bot-api");
@@ -19,7 +19,6 @@ const questions = [
 
 const users = {};
 
-// Функция для очистки чата
 async function clearChat(chatId, messageId) {
   try {
     for (let i = messageId; i > 0; i--) {
@@ -34,18 +33,16 @@ async function clearChat(chatId, messageId) {
   }
 }
 
-// Функция для проверки возраста
+
 function checkAge(ageString) {
-  // Ищем любые числа в строке
   const numbers = ageString.match(/\d+/g);
   if (numbers) {
-    // Проверяем каждое число в строке
     return numbers.some(num => parseInt(num) < 10);
   }
   return false;
 }
 
-// Начало работы бота
+// start of bot
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
   users[chatId] = {
@@ -58,7 +55,10 @@ bot.onText(/\/start/, (msg) => {
   bot.sendMessage(chatId, questions[0]);
 });
 
-// Обработка всех типов сообщений
+function isValidAgeFormat(ageString) {
+  return /^\d+$/.test(ageString.trim());
+}
+
 bot.on("message", async (msg) => {
   const chatId = msg.chat.id;
   const messageId = msg.message_id;
@@ -67,12 +67,13 @@ bot.on("message", async (msg) => {
 
   const user = users[chatId];
 
-  // Обработка текстовых ответов
   if (user.step >= 0 && user.step < questions.length) {
-    user.answers.push(msg.text);
-
-    // Проверка возраста после ответа на второй вопрос (индекс 1)
     if (user.step === 1) {
+      if (!isValidAgeFormat(msg.text)) {
+        await bot.sendMessage(chatId, "Пожалуйста, укажите возраст только цифрами (например: 18)");
+        return;
+      }
+      
       if (checkAge(msg.text)) {
         await clearChat(chatId, messageId);
         await bot.sendMessage(chatId, "К сожалению, мы принимаем только участников старше 10 лет. Для начала анкеты сначала нажмите /start");
@@ -81,12 +82,12 @@ bot.on("message", async (msg) => {
       }
     }
 
+    user.answers.push(msg.text);
     user.step += 1;
 
     if (user.step < questions.length) {
       bot.sendMessage(chatId, questions[user.step]);
     } else {
-      // Если все вопросы заданы, спрашиваем про тренировки
       const trainingKeyboard = {
         reply_markup: {
           inline_keyboard: [
@@ -100,7 +101,6 @@ bot.on("message", async (msg) => {
   }
 });
 
-// Обработка нажатий на inline-кнопки
 bot.on("callback_query", async (callbackQuery) => {
   const chatId = callbackQuery.message.chat.id;
   const messageId = callbackQuery.message.message_id;
